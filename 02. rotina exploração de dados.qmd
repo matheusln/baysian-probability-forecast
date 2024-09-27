@@ -1,0 +1,253 @@
+---
+title: "02. rotina exploração de dados"
+author: "Matheus Lazzari Nicola"
+format: html
+editor: visual
+---
+
+# pacotes
+
+```{r}
+#| warning: false
+#| echo: false
+
+pkgs<-c("tidyverse", "kableExtra", "car", "bayeslm")
+
+new.packages <- pkgs[!(pkgs %in% installed.packages()[,"Package"])]
+
+if(length(new.packages)) install.packages(new.packages)
+
+invisible(lapply(pkgs, library, character.only = TRUE))
+remove(pkgs, new.packages)
+
+```
+
+# base de dados
+
+```{r}
+load("c. exploração de dados/atrasos.RData")
+```
+
+# carreg transp
+
+```{r}
+par(mfrow=c(5,4), mar=c(4, 4, 2, 1))  # Aumentando as margens
+for (i in 2:20) {
+  boxplot(atraso.carreg.transp[[i]] ~ atraso.carreg.transp[[1]],
+          boxwex=0.4,
+          xlab="transp atrasou",
+          main="",
+          outline=FALSE,
+          names=c("Não","Sim"),
+          ylab=colnames(atraso.carreg.transp)[i])
+}
+
+```
+
+```{r}
+# Criando um data frame para armazenar os resultados
+resultado_final <- data.frame()
+
+# Iterando sobre as variáveis dummies a partir da coluna 21
+for (i in 21:25) {
+  # Nome da variável atual
+  var_name <- colnames(atraso.carreg.transp)[i]
+  
+  # Tabela de números absolutos
+  abs_table <- table(atraso.carreg.transp[[1]], atraso.carreg.transp[[i]])
+  
+  # Tabela de proporções (margem 1: por linha)
+  prop_table <- prop.table(abs_table, margin = 1)
+  
+  # Garantindo que as dimensões sejam corretas
+  rows_abs <- as.vector(abs_table)
+  rows_prop <- as.vector(prop_table)
+  
+  # Obtendo os nomes das categorias de atraso.carreg.transp (0 ou 1)
+  rownames_abs <- rep(rownames(abs_table), times = ncol(abs_table))
+  
+  # Obtendo os valores de 0 e 1 das variáveis dummy
+  colnames_abs <- rep(colnames(abs_table), each = nrow(abs_table))
+  
+  # Formatando as proporções como porcentagem
+  prop_percent <- format(round(rows_prop * 100, 2), nsmall = 2)
+  prop_percent <- paste0(prop_percent, "%")
+  
+  # Formatando as tabelas e combinando (incluindo valores absolutos e proporcionais)
+  combined_table <- data.frame(
+    VarName = var_name,
+    Transp_Atrasou = rownames_abs,
+    Dummy_Value = colnames_abs,
+    Absoluto = rows_abs,
+    Proporcional = prop_percent
+  )
+  
+  # Combinando os resultados no data frame final
+  resultado_final <- rbind(resultado_final, combined_table)
+}
+
+# Mostrando a tabela final
+resultado_final |>
+  kable() |>
+  kable_styling(full_width = FALSE)
+```
+
+```{r}
+# Remover níveis não utilizados em todo o data frame
+atraso.carreg.transp <- droplevels(atraso.carreg.transp)
+# Identificar variáveis fatoriais com menos de dois níveis
+single_level_factors <- sapply(atraso.carreg.transp, function(x) is.factor(x) && nlevels(x) < 2)
+
+# Exibir os nomes dessas variáveis
+names(atraso.carreg.transp)[single_level_factors]
+
+# Remover essas variáveis do conjunto de dados
+atraso.carreg.transp <- atraso.carreg.transp[, !single_level_factors]
+
+atraso.carreg.transp <- na.omit(atraso.carreg.transp)
+
+
+```
+
+## bayes lm
+
+```{r}
+y = as.numeric(as.character(atraso.carreg.transp[[1]]))
+X = model.matrix(~ . -1, data = atraso.carreg.transp[, -c(1,  # transportador_atrasou
+                                                          2,  # delta_carregamento,
+                                                          14, # delta_inicio_cadastro
+                                                          16, # delta_pinicio_inicio
+                                                          17, # delta_pfim_fim
+                                                          18, # delta_agenda_chegada
+                                                          19, # n_paradas.rast
+                                                          28, # possui_prioridade
+                                                          30, # CIDADE_OPERACO
+                                                          31, # OPERACAO
+                                                          32, # ERAS_DESCRICAO
+                                                          33, # MARCA_CAVALO
+                                                          34, # MARCA_CARRETA
+                                                          35, # intraestado
+                                                          36, # interestado
+                                                          37, # rota_agrupada
+                                                          38  # rota_aprovada
+                                                          )])
+
+k = ncol(atraso.carreg.transp)-1
+
+M0    = 10000
+M     = 1000
+skip  = 10
+bvec  = rep(1,k)
+fit.r = bayeslm(y~X-1,prior="ridge",block_vec=bvec,N=M,burnin=M0,thinning=skip)
+```
+
+## lm model
+
+```{r}
+y = as.numeric(as.character(atraso.carreg.transp[[1]]))
+X = model.matrix(~ . -1, data = atraso.carreg.transp[, -c(1,  # transportador_atrasou
+                                                          2,  # delta_carregamento,
+                                                          14, # delta_inicio_cadastro
+                                                          16, # delta_pinicio_inicio
+                                                          17, # delta_pfim_fim
+                                                          18, # delta_agenda_chegada
+                                                          19, # n_paradas.rast
+                                                          28, # possui_prioridade
+                                                          30, # CIDADE_OPERACO
+                                                          31, # OPERACAO
+                                                          32, # ERAS_DESCRICAO
+                                                          33, # MARCA_CAVALO
+                                                          34, # MARCA_CARRETA
+                                                          35, # intraestado
+                                                          36, # interestado
+                                                          37, # rota_agrupada
+                                                          38  # rota_aprovada
+                                                          )])
+
+ols     = lm(y~X-1)
+sighat  = round(summary(ols)$sig,3)
+se.beta = sighat*sqrt(diag(solve(t(X)%*%X)))
+L = ols$coef-se.beta
+U = ols$coef+se.beta
+
+par(mfrow=c(1,1))
+plot(ols$coef,xlab="Predictor",ylab="OLS  coefficient",ylim=range(L,U),cex=0.5,col=2,pch=16)
+for (i in 1:k){
+  segments(i,L[i],i,U[i],col=2)
+  if ((L[i]>0)|(U[i]<0)){
+     text(i,max(U),i,cex=0.5)
+  }
+  abline(h=0,col=2)
+}
+
+
+
+vif(ols)
+
+# Identificar coeficientes aliased
+alias_info <- alias(ols)
+
+# Visualizar as relações de aliasing
+print(alias_info)
+
+
+glm     = glm(y~X-1)
+sighat  = round(summary(glm)$dispersion,3)
+se.beta = sighat*sqrt(diag(solve(t(X)%*%X)))
+
+vif(glm) 
+
+# Identificar coeficientes aliased
+alias_info <- alias(glm)
+
+# Visualizar as relações de aliasing
+print(alias_info)
+```
+
+# carreg cliente
+
+```{r}
+par(mfrow=c(5,4), mar=c(4, 4, 2, 1))  # Aumentando as margens
+for (i in 2:20) {
+  boxplot(atraso.carreg.cliente[[i]] ~ atraso.carreg.cliente[[1]],
+          boxwex=0.4,
+          xlab="cliente atrasou",
+          main="",
+          outline=FALSE,
+          names=c("Não","Sim"),
+          ylab=colnames(atraso.carreg.cliente)[i])
+}
+```
+
+# descarreg transp
+
+```{r}
+par(mfrow=c(5,4), mar=c(4, 4, 2, 1))  # Aumentando as margens
+for (i in 2:20) {
+  boxplot(atraso.descarreg.transp[[i]] ~ atraso.descarreg.transp[[1]],
+          boxwex=0.4,
+          xlab="transp atrasou",
+          main="",
+          outline=FALSE,
+          names=c("Não","Sim"),
+          ylab=colnames(atraso.descarreg.transp)[i])
+}
+
+
+
+```
+
+# descarreg cliente
+
+```{r}
+par(mfrow=c(5,4), mar=c(4, 4, 2, 1))  # Aumentando as margens
+for (i in 2:20) {
+  boxplot(atraso.descarreg.cliente[[i]] ~ atraso.descarreg.cliente[[1]],
+          boxwex=0.4,
+          xlab="cliente atrasou",
+          main="",
+          outline=FALSE,
+          names=c("Não","Sim"),
+          ylab=colnames(atraso.descarreg.cliente)[i])
+}
+```
